@@ -1,0 +1,95 @@
+using EnvDTE;
+using EnvDTE80;
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using Microsoft.VisualStudio.Shell;
+
+public class C : VisualCommanderExt.ICommand
+{
+    public void Run(DTE2 DTE, Package package)
+    {
+        var debugger = DTE.Debugger;
+        var selectedProject = GetSelectedProject(DTE);
+
+        if (selectedProject != null)
+        {
+            var projectItems = GetProjectItems(selectedProject.ProjectItems);
+
+            foreach (var projectItem in projectItems)
+            {
+
+               // WriteToOutputWindow(DTE, string.Format("Processing project item: {0}", projectItem.Name));
+
+                if (projectItem.Name.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    var fileCodeModel = projectItem.FileCodeModel;
+
+                    if (fileCodeModel != null)
+                    {
+                        foreach (CodeElement codeElement in fileCodeModel.CodeElements)
+                        {
+                            AddBreakpointsToMethods(debugger, codeElement);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private Project GetSelectedProject(DTE2 DTE)
+    {
+        Array selectedItems = (Array)DTE.ToolWindows.SolutionExplorer.SelectedItems;
+        if (selectedItems.Length == 1)
+        {
+            UIHierarchyItem item = (UIHierarchyItem)selectedItems.GetValue(0);
+            return item.Object as Project;
+        }
+        return null;
+    }
+
+    private IEnumerable<ProjectItem> GetProjectItems(ProjectItems projectItems)
+    {
+        foreach (ProjectItem item in projectItems)
+        {
+            yield return item;
+
+            if (item.ProjectItems != null)
+            {
+                foreach (var childItem in GetProjectItems(item.ProjectItems))
+                {
+                    yield return childItem;
+                }
+            }
+        }
+    }
+
+    private void AddBreakpointsToMethods(Debugger debugger, CodeElement codeElement)
+    {
+        if (codeElement.Kind == vsCMElement.vsCMElementNamespace || codeElement.Kind == vsCMElement.vsCMElementClass)
+        {
+            foreach (CodeElement member in codeElement.Children)
+            {
+                AddBreakpointsToMethods(debugger, member);
+            }
+        }
+        else if (codeElement.Kind == vsCMElement.vsCMElementFunction)
+        {
+            debugger.Breakpoints.Add(codeElement.FullName);
+        }
+    }
+
+  private void WriteToOutputWindow(DTE2 DTE, string message)
+    {
+        var outputWindow = DTE.ToolWindows.OutputWindow;
+        var outputPane = outputWindow.OutputWindowPanes.Cast<OutputWindowPane>().FirstOrDefault(p => p.Name == "General");
+
+        if (outputPane == null)
+        {
+            outputPane = outputWindow.OutputWindowPanes.Add("General");
+        }
+
+        outputPane.OutputString(message + Environment.NewLine);
+        outputPane.Activate(); // Optional: to bring the Output window to the front
+    }
+}
